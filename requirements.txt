@@ -1,0 +1,10 @@
+flask>=3.0
+flask-sqlalchemy>=3.1
+flask-migrate
+flask-cors
+psycopg2-binary
+redis
+marshmallow>=3.20
+pydantic-settings
+structlog
+gunicorn

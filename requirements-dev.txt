@@ -1,0 +1,9 @@
+-r requirements.txt
+pytest
+pytest-flask
+pytest-cov
+factory-boy
+fakeredis
+black
+ruff
+mypy

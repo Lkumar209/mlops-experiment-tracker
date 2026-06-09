@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+  namespace: mlops-tracker
+data:
+  FLASK_ENV: "production"
+  VITE_API_BASE_URL: "https://mlops-tracker.example.com"
+  POSTGRES_DB: "mlops_tracker"

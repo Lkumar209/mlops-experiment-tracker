@@ -1,0 +1,169 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_HUB_CREDS = credentials('dockerhub-credentials')
+        KUBECONFIG_CREDS  = credentials('kubeconfig')
+        SLACK_WEBHOOK     = credentials('slack-webhook-url')
+        BACKEND_IMAGE     = "lkumar209/mlops-tracker-backend"
+        FRONTEND_IMAGE    = "lkumar209/mlops-tracker-frontend"
+        SHORT_SHA         = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        FAILED_STAGE      = ""
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Lint and Type Check') {
+            parallel {
+                stage('Backend Lint') {
+                    steps {
+                        sh 'pip install ruff mypy --quiet'
+                        sh 'ruff check backend/'
+                        sh 'mypy backend/app'
+                    }
+                    post {
+                        failure {
+                            script { env.FAILED_STAGE = 'Backend Lint' }
+                        }
+                    }
+                }
+                stage('Frontend Type Check') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm ci --quiet'
+                            sh 'npm run type-check'
+                        }
+                    }
+                    post {
+                        failure {
+                            script { env.FAILED_STAGE = 'Frontend Type Check' }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Test') {
+            parallel {
+                stage('Backend Tests') {
+                    steps {
+                        script {
+                            docker.image('postgres:16-alpine').withRun(
+                                '-e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=test_mlops -e POSTGRES_USER=postgres -p 5433:5432'
+                            ) { pgContainer ->
+                                docker.image('redis:7-alpine').withRun('-p 6380:6379') { redisContainer ->
+                                    sh '''
+                                        pip install -r requirements-dev.txt --quiet
+                                        export DATABASE_URL=postgresql://postgres:testpass@localhost:5433/test_mlops
+                                        export REDIS_URL=redis://localhost:6380
+                                        export API_KEY=test-api-key
+                                        export SECRET_KEY=test-secret
+                                        export FLASK_ENV=testing
+                                        pytest backend/tests/ --cov=backend/app --cov-report=xml -v
+                                    '''
+                                }
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'junit.xml', allowEmptyResults: true
+                            publishCoverage adapters: [coberturaAdapter('coverage.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                        }
+                        failure {
+                            script { env.FAILED_STAGE = 'Backend Tests' }
+                        }
+                    }
+                }
+
+                stage('Frontend Tests') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm test'
+                        }
+                    }
+                    post {
+                        failure {
+                            script { env.FAILED_STAGE = 'Frontend Tests' }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
+                        def backendImage = docker.build("${BACKEND_IMAGE}:${SHORT_SHA}", './backend')
+                        backendImage.push()
+                        backendImage.push('latest')
+
+                        def frontendImage = docker.build("${FRONTEND_IMAGE}:${SHORT_SHA}", './frontend')
+                        frontendImage.push()
+                        frontendImage.push('latest')
+                    }
+                }
+            }
+            post {
+                failure {
+                    script { env.FAILED_STAGE = 'Build Docker Images' }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                        sh """
+                            kubectl set image deployment/backend backend=${BACKEND_IMAGE}:${SHORT_SHA} -n mlops-tracker
+                            kubectl set image deployment/frontend frontend=${FRONTEND_IMAGE}:${SHORT_SHA} -n mlops-tracker
+                        """
+
+                        def backendStatus = sh(
+                            script: 'kubectl rollout status deployment/backend -n mlops-tracker --timeout=120s',
+                            returnStatus: true
+                        )
+                        def frontendStatus = sh(
+                            script: 'kubectl rollout status deployment/frontend -n mlops-tracker --timeout=120s',
+                            returnStatus: true
+                        )
+
+                        if (backendStatus != 0 || frontendStatus != 0) {
+                            echo 'Rollout failed — initiating automatic rollback'
+                            sh 'kubectl rollout undo deployment/backend -n mlops-tracker'
+                            sh 'kubectl rollout undo deployment/frontend -n mlops-tracker'
+                            env.FAILED_STAGE = 'Deploy to Kubernetes (rolled back)'
+                            error('Deployment failed and was rolled back')
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            script {
+                def message = "Build FAILED on ${env.BRANCH_NAME} — Stage: ${env.FAILED_STAGE ?: 'unknown'} — ${env.BUILD_URL}"
+                sh """
+                    curl -s -X POST '${SLACK_WEBHOOK}' \
+                    -H 'Content-type: application/json' \
+                    --data '{"text": "${message}"}'
+                """
+            }
+        }
+        always {
+            archiveArtifacts artifacts: 'coverage.xml,junit.xml', allowEmptyArchive: true
+        }
+    }
+}
