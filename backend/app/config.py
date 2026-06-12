@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-key"
     api_key: str = "dev-api-key"
     flask_env: str = "development"
+    artifact_store_path: str = "/tmp/mlops_artifacts"
+    s3_bucket: str | None = None
+    s3_region: str = "us-east-1"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
 
     @property
     def is_testing(self) -> bool:

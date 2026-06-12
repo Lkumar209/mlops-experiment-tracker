@@ -8,3 +8,4 @@ marshmallow>=3.20
 pydantic-settings
 structlog
 gunicorn
+boto3>=1.34
