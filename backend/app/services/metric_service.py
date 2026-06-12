@@ -45,6 +45,8 @@ class MetricService:
             pipe.execute()
 
         log.info("metrics_ingested", run_id=run_id, count=len(rows))
+        from .alert_service import AlertService
+        AlertService.check_and_fire(run_id, metrics)
         return len(rows)
 
     @staticmethod

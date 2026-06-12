@@ -30,6 +30,7 @@ class Run(db.Model):
     experiment: Mapped["Experiment"] = relationship("Experiment", back_populates="runs")  # type: ignore[name-defined]
     metrics: Mapped[list["Metric"]] = relationship("Metric", back_populates="run", cascade="all, delete-orphan")  # type: ignore[name-defined]
     artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")  # type: ignore[name-defined]
+    tags: Mapped[list["RunTag"]] = relationship("RunTag", back_populates="run", cascade="all, delete-orphan")  # type: ignore[name-defined]
     gpu_node: Mapped["GPUNode | None"] = relationship("GPUNode", foreign_keys=[gpu_node_id])  # type: ignore[name-defined]
 
     def to_dict(self) -> dict:

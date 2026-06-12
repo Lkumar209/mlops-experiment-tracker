@@ -28,6 +28,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .api.artifacts import artifacts_bp
     from .api.gpu_nodes import gpu_nodes_bp
     from .api.health import health_bp
+    from .api.tags import tags_bp
+    from .api.alerts import alerts_bp
 
     app.register_blueprint(experiments_bp, url_prefix="/api/v1")
     app.register_blueprint(runs_bp, url_prefix="/api/v1")
@@ -35,5 +37,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.register_blueprint(artifacts_bp, url_prefix="/api/v1")
     app.register_blueprint(gpu_nodes_bp, url_prefix="/api/v1")
     app.register_blueprint(health_bp)
+    app.register_blueprint(tags_bp, url_prefix="/api/v1")
+    app.register_blueprint(alerts_bp, url_prefix="/api/v1")
 
     return app
